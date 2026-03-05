@@ -1,8 +1,8 @@
-"""zig-backend: zig cc wrapper for Python/Cython extension builds.
+"""zig-cc-python: zig cc wrapper for Python/Cython extension builds.
 
 Resolves the zig binary from the ziglang PyPI package in the active venv
 and applies the minimal set of flag filters and rewrites needed to make
-real Python build systems (setuptools, Cython, marimo-cython) work correctly
+real Python build systems (setuptools, Cython) work correctly
 on macOS and Linux.
 
 Known issues fixed vs raw `zig cc` / archived `zigcc`:
@@ -19,14 +19,15 @@ Linux:
     by only matching `-x` as an exact token or a proper flag prefix.
 
 Usage:
-    uv add ziglang zig-backend
-    CC="zig-backend" uv run python setup.py build_ext --inplace
-    CC="zig-backend" uv run python -m build
+    uv add ziglang zig-cc-python
+    CC="zig-cc" uv run python setup.py build_ext --inplace
+    CC="zig-cc" uv run python -m build
 """
 
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from pathlib import Path
 # Drop these flags entirely.
 # Matched as exact token OR prefix (e.g. "-LModules/" matches "-LModules/_hacl").
 # IMPORTANT: entries must be specific enough not to match unrelated args.
-# Do NOT use single-character entries like "-x" here — use _EXACT_DROPS for those.
+# Do NOT add short flags like "-x" here — use _EXACT_DROPS for those.
 _PREFIX_DROPS: tuple[str, ...] = (
     # CPython sysconfig artifact: relative -L path baked into uv-managed Python builds.
     "-LModules/",
@@ -57,20 +58,21 @@ _PREFIX_DROPS: tuple[str, ...] = (
     # definition, bypassing the PLT. zig ld does not support this.
     "-Wl,-Bsymbolic-functions",
     "-Wl,-Bsymbolic",
-    # Exported symbols list (Apple linker flag, no zig equivalent).
-    "-exported_symbols_list",
 )
 
 # Drop these as exact token matches only (no substring/prefix matching).
-# Used for short flags that would cause false positives as prefix/wildcard.
+# Use this for short flags that would cause false positives as prefixes (e.g. "-x").
 _EXACT_DROPS: frozenset[str] = frozenset()
 
 # Two-token drops: drop this flag AND the token immediately following it.
 _PAIR_DROPS: frozenset[str] = frozenset(
-    [
+    {
         # GNU-style --target; zig uses -target instead.
         "--target",
-    ]
+        # Apple linker flag: restricts exported symbols to a list file.
+        # zig ld has no equivalent; the filename argument must also be dropped.
+        "-exported_symbols_list",
+    }
 )
 
 # Exact token rewrites: replace flag with zig cc equivalent.
@@ -96,7 +98,7 @@ def _find_zig() -> Path:
     """
     # Prefer ziglang from the active venv — fully self-contained, version-pinned.
     try:
-        import ziglang  # type: ignore[import-untyped]
+        import ziglang
 
         pkg_file: str | None = ziglang.__file__
         if pkg_file is not None:
@@ -107,8 +109,6 @@ def _find_zig() -> Path:
         pass
 
     # Fall back to PATH (system zig or manually installed).
-    import shutil
-
     zig_on_path = shutil.which("zig")
     if zig_on_path:
         return Path(zig_on_path)
@@ -160,6 +160,7 @@ def _filter(args: list[str]) -> list[str]:
 def _run(subcommand: str) -> None:
     zig = _find_zig()
     filtered = _filter(sys.argv[1:])
+    # argv[0] must be the program name by POSIX convention — zig itself uses it.
     cmd = [str(zig), subcommand, *filtered]
 
     if os.name == "posix":

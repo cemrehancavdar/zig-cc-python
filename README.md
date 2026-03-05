@@ -1,38 +1,37 @@
-# zig-backend
+# zig-cc-python
 
-`zig cc` backend for Python/Cython extension builds. Drop-in `CC=` replacement that actually works.
+`zig cc` as a drop-in `CC=` replacement for Python extension builds.
 
 ```bash
-uv add --dev ziglang zig-backend
-CC="zig-backend" uv run python setup.py build_ext --inplace
+uv add --dev ziglang zig-cc-python
+CC="zig-cc" uv run python setup.py build_ext --inplace
 ```
 
-Works with setuptools, Cython, and marimo-cython. No system compiler required.
+## What this is
 
-## Known limitations
+This is not magic. It's a thin wrapper that drops or rewrites a handful of flags that `zig cc` doesn't support but Python's build system passes by default. The real work is in figuring out which flags those are — the code itself is trivial.
 
-**OpenMP is not supported.** `zig cc` does not bundle `omp.h` and does not link against `libomp`. Packages that require `-fopenmp` (scipy, scikit-learn internals) will fail at the compile step with `omp.h: file not found`. Use a system compiler for those.
+The whole point is building **Python C extensions** with `zig cc` instead of gcc or clang. That's the only use case it targets.
 
-## Why not zigcc?
+It uses the [`ziglang`](https://pypi.org/project/ziglang/) PyPI package as the compiler — not a system `zig` installation. The zig version is pinned in your `uv.lock`, the binary lives in your venv, nothing needs to be installed system-wide.
 
-[zigcc](https://pypi.org/project/zigcc/) is archived and has two bugs that break Python extension builds:
+If you've decided to use this and hit a bug, open an issue or a PR.
 
-- **macOS**: `-bundle` is silently ignored by `zig ld`, producing a broken output. Rewritten to `-shared`.
-- **Linux x86_64**: wildcard `-x` blacklist drops any argument containing `-x` as a substring — which includes every output path on x86_64 (`linux-x86_64`). Fixed with exact/prefix matching only.
+## Not zigcc
 
-`zig-backend` also resolves the `zig` binary directly from the `ziglang` PyPI package in your venv — no PATH setup, no symlinks, version-pinned by `uv.lock`.
+There is a [`zigcc`](https://pypi.org/project/zigcc/) package on PyPI. It is archived and has bugs that break Python extension builds on Linux x86_64 and macOS. This is not that package.
 
 ## Usage
 
 ```bash
-# Cython project
-CC="zig-backend" uv run python setup.py build_ext --inplace
+# C extension
+CC="zig-cc" uv run python setup.py build_ext --inplace
 
-# marimo-cython
-CC="zig-backend" uv run python your_notebook.py
+# C++ extension
+CC="zig-cc" CXX="zig-cc-cxx" uv run python setup.py build_ext --inplace
 
-# C++ extensions
-CC="zig-backend" CXX="zig-backend-cxx" uv run python setup.py build_ext --inplace
+# python -m build
+CC="zig-cc" uv run python -m build
 ```
 
 ## What it fixes
@@ -46,4 +45,15 @@ CC="zig-backend" CXX="zig-backend-cxx" uv run python setup.py build_ext --inplac
 | `-Wl,--exclude-libs` | Linux | unsupported linker arg | drop |
 | `-Wl,-Bsymbolic-functions` | Linux | unsupported linker arg (Ubuntu system Python) | drop |
 | `-Wl,-Bsymbolic` | Linux | unsupported linker arg | drop |
-| `-x` wildcard | Linux x86_64 | drops output paths containing `-x` | exact matching only |
+| `-exported_symbols_list <file>` | macOS | unsupported Apple linker flag | drop (both tokens) |
+| `-x` wildcard | Linux x86_64 | zigcc dropped output paths containing `-x` | exact matching only |
+
+## Known limitations
+
+**OpenMP (`-fopenmp`)** — partially supported. Linux works: install `libomp-dev` and pass `-I`/`-L`/`-lomp` flags manually. macOS does not work: zig cc 0.15.x / Clang 20 compiles Cython's outlined parallel regions without emitting the expected `___kmpc_fork_call` runtime calls, so `prange` loops silently return wrong results. Use a system compiler for OpenMP on macOS.
+
+**Dropped flags have minor side effects.** zig-cc-python silently drops several flags that zig cc does not support. Verified consequences:
+
+- `-Wl,-headerpad,0x40` — no effect in practice; zig cc and Apple ld produce identical header sizes.
+- `-Wl,--exclude-libs,ALL` — static library symbols may leak into the extension's dynamic symbol table. This only causes conflicts if another extension is loaded with `RTLD_GLOBAL` and exports the same symbol. Python loads extensions with `RTLD_LOCAL` by default, so normal `import` is unaffected.
+- `-exported_symbols_list` — same symbol visibility note as above. Not observed in any real build during testing.
