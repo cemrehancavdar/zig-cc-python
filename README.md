@@ -9,6 +9,10 @@ CC="zig-backend" uv run python setup.py build_ext --inplace
 
 Works with setuptools, Cython, and marimo-cython. No system compiler required.
 
+## Known limitations
+
+**OpenMP is not supported.** `zig cc` does not bundle `omp.h` and does not link against `libomp`. Packages that require `-fopenmp` (scipy, scikit-learn internals) will fail at the compile step with `omp.h: file not found`. Use a system compiler for those.
+
 ## Why not zigcc?
 
 [zigcc](https://pypi.org/project/zigcc/) is archived and has two bugs that break Python extension builds:
