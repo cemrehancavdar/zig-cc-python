@@ -40,4 +40,6 @@ CC="zig-backend" CXX="zig-backend-cxx" uv run python setup.py build_ext --inplac
 | `-Wl,-headerpad,N` | macOS | crashes zig 0.15.x | drop |
 | `-Wl,-w` | macOS/Linux | unsupported linker arg | drop |
 | `-Wl,--exclude-libs` | Linux | unsupported linker arg | drop |
+| `-Wl,-Bsymbolic-functions` | Linux | unsupported linker arg (Ubuntu system Python) | drop |
+| `-Wl,-Bsymbolic` | Linux | unsupported linker arg | drop |
 | `-x` wildcard | Linux x86_64 | drops output paths containing `-x` | exact matching only |

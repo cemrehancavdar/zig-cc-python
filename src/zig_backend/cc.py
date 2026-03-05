@@ -53,6 +53,10 @@ _PREFIX_DROPS: tuple[str, ...] = (
     # Linux: tells the linker not to re-export symbols from static libs.
     # zig cc linker does not support this flag.
     "-Wl,--exclude-libs",
+    # Linux: makes function calls within the DSO go directly to the local
+    # definition, bypassing the PLT. zig ld does not support this.
+    "-Wl,-Bsymbolic-functions",
+    "-Wl,-Bsymbolic",
     # Exported symbols list (Apple linker flag, no zig equivalent).
     "-exported_symbols_list",
 )
